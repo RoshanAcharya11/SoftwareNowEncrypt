@@ -1,173 +1,126 @@
-def encrypt_char(char, shift1, shift2):
-    """Encrypt a single character based on the custom rules"""
-    if char.islower():
-        # Lowercase letters
-        if 'a' <= char <= 'm':  # First half (a-m)
-            shift = (shift1 * shift2) % 26
-            return chr((ord(char) - ord('a') + shift) % 26 + ord('a'))
-        else:  # Second half (n-z)
-            shift = (shift1 + shift2) % 26
-            return chr((ord(char) - ord('a') - shift) % 26 + ord('a'))
-    
-    elif char.isupper():
-        # Uppercase letters
-        if 'A' <= char <= 'M':  # First half (A-M)
-            shift = shift1 % 26
-            return chr((ord(char) - ord('A') - shift) % 26 + ord('A'))
-        else:  # Second half (N-Z)
-            shift = (shift2 ** 2) % 26
-            return chr((ord(char) - ord('A') + shift) % 26 + ord('A'))
-    
-    else:
-        # Spaces, tabs, newlines, special characters, numbers remain unchanged
-        return char
+import sys
+from typing import List, Tuple
 
 
-def decrypt_char(char, shift1, shift2):
-    """Decrypt a single character by reversing the encryption rules"""
-    if char.islower():
-        # We need to figure out where this encrypted char came from
-        # Try both decryption paths and see which gives us a char in the right range
-        
-        # Path 1: Assume it came from first half (a-m), so reverse forward shift
-        shift = (shift1 * shift2) % 26
-        candidate1 = chr((ord(char) - ord('a') - shift) % 26 + ord('a'))
-        
-        # Path 2: Assume it came from second half (n-z), so reverse backward shift
-        shift = (shift1 + shift2) % 26  
-        candidate2 = chr((ord(char) - ord('a') + shift) % 26 + ord('a'))
-        
-        # Return the candidate that falls in the correct original range
-        if 'a' <= candidate1 <= 'm':
-            return candidate1
-        elif 'n' <= candidate2 <= 'z':
-            return candidate2
+def encrypt_file(src_path: str, enc_path: str, shift1: int, shift2: int) -> Tuple[str, List[int]]:
+    with open(src_path, "r", encoding="utf-8") as file_in:
+        plain_data = file_in.read()
+
+    enc_buffer: List[str] = []
+    applied_rules: List[int] = []
+
+    for symbol in plain_data:
+        if 'a' <= symbol <= 'z':
+            if symbol <= 'm':
+                idx_new = (ord(symbol) - ord('a') + (shift1 * shift2)) % 26
+                enc_buffer.append(chr(idx_new + ord('a')))
+                applied_rules.append(0)
+            else:
+                idx_new = (ord(symbol) - ord('a') - (shift1 + shift2)) % 26
+                enc_buffer.append(chr(idx_new + ord('a')))
+                applied_rules.append(1)
+
+        elif 'A' <= symbol <= 'Z':
+            if symbol <= 'M':
+                idx_new = (ord(symbol) - ord('A') - shift1) % 26
+                enc_buffer.append(chr(idx_new + ord('A')))
+                applied_rules.append(2)
+            else:
+                idx_new = (ord(symbol) - ord('A') + (shift2 ** 2)) % 26
+                enc_buffer.append(chr(idx_new + ord('A')))
+                applied_rules.append(3)
+
         else:
-            # Edge case: return the first candidate if neither fits perfectly
-            return candidate1
-    
-    elif char.isupper():
-        # Path 1: Assume it came from first half (A-M), so reverse backward shift
-        shift = shift1 % 26
-        candidate1 = chr((ord(char) - ord('A') + shift) % 26 + ord('A'))
-        
-        # Path 2: Assume it came from second half (N-Z), so reverse forward shift
-        shift = (shift2 ** 2) % 26
-        candidate2 = chr((ord(char) - ord('A') - shift) % 26 + ord('A'))
-        
-        # Return the candidate that falls in the correct original range
-        if 'A' <= candidate1 <= 'M':
-            return candidate1
-        elif 'N' <= candidate2 <= 'Z':
-            return candidate2
+            enc_buffer.append(symbol)
+            applied_rules.append(4)
+
+    enc_text = "".join(enc_buffer)
+
+    with open(enc_path, "w", encoding="utf-8") as file_out:
+        file_out.write(enc_text)
+
+    return enc_text, applied_rules
+
+
+def decrypt_file(enc_path: str, dec_path: str, rulebook: List[int], shift1: int, shift2: int) -> str:
+    with open(enc_path, "r", encoding="utf-8") as file_enc:
+        enc_text = file_enc.read()
+
+    if len(enc_text) != len(rulebook):
+        raise ValueError("Encrypted text length and rules length do not match; cannot decrypt safely.")
+
+    dec_buffer: List[str] = []
+
+    for i, symbol in enumerate(enc_text):
+        mode = rulebook[i]
+
+        if mode == 0:
+            idx = ord(symbol) - ord('a')
+            orig_idx = (idx - (shift1 * shift2)) % 26
+            dec_buffer.append(chr(orig_idx + ord('a')))
+
+        elif mode == 1:
+            idx = ord(symbol) - ord('a')
+            orig_idx = (idx + (shift1 + shift2)) % 26
+            dec_buffer.append(chr(orig_idx + ord('a')))
+
+        elif mode == 2:
+            idx = ord(symbol) - ord('A')
+            orig_idx = (idx + shift1) % 26
+            dec_buffer.append(chr(orig_idx + ord('A')))
+
+        elif mode == 3:
+            idx = ord(symbol) - ord('A')
+            orig_idx = (idx - (shift2 ** 2)) % 26
+            dec_buffer.append(chr(orig_idx + ord('A')))
+
         else:
-            # Edge case: return the first candidate if neither fits perfectly
-            return candidate1
-    
-    else:
-        # Spaces, tabs, newlines, special characters, numbers remain unchanged
-        return char
+            dec_buffer.append(symbol)
+
+    dec_text = "".join(dec_buffer)
+
+    with open(dec_path, "w", encoding="utf-8") as file_dec:
+        file_dec.write(dec_text)
+
+    return dec_text
 
 
-def encrypt_file(input_filename, output_filename, shift1, shift2):
-    """Encrypt the contents of input file and write to output file"""
+def verify_files(path_a: str, path_b: str) -> bool:
+    with open(path_a, "r", encoding="utf-8") as f1:
+        txt_a = f1.read()
+    with open(path_b, "r", encoding="utf-8") as f2:
+        txt_b = f2.read()
+    return txt_a == txt_b
+
+
+def main() -> None:
     try:
-        with open(input_filename, 'r', encoding='utf-8') as infile:
-            content = infile.read()
-        
-        encrypted_content = ''.join(encrypt_char(char, shift1, shift2) for char in content)
-        
-        with open(output_filename, 'w', encoding='utf-8') as outfile:
-            outfile.write(encrypted_content)
-            
-        print(f"✓ Successfully encrypted '{input_filename}' to '{output_filename}'")
-        return True
-        
-    except FileNotFoundError:
-        print(f"✗ Error: Could not find file '{input_filename}'")
-        return False
-    except Exception as e:
-        print(f"✗ Error during encryption: {e}")
-        return False
-
-
-def decrypt_file(input_filename, output_filename, shift1, shift2):
-    """Decrypt the contents of input file and write to output file"""
-    try:
-        with open(input_filename, 'r', encoding='utf-8') as infile:
-            content = infile.read()
-        
-        decrypted_content = ''.join(decrypt_char(char, shift1, shift2) for char in content)
-        
-        with open(output_filename, 'w', encoding='utf-8') as outfile:
-            outfile.write(decrypted_content)
-            
-        print(f"✓ Successfully decrypted '{input_filename}' to '{output_filename}'")
-        return True
-        
-    except FileNotFoundError:
-        print(f"✗ Error: Could not find file '{input_filename}'")
-        return False
-    except Exception as e:
-        print(f"✗ Error during decryption: {e}")
-        return False
-
-
-def verify_decryption(original_filename, decrypted_filename):
-    """Compare original and decrypted files to verify successful decryption"""
-    try:
-        with open(original_filename, 'r', encoding='utf-8') as orig_file:
-            original_content = orig_file.read()
-            
-        with open(decrypted_filename, 'r', encoding='utf-8') as decr_file:
-            decrypted_content = decr_file.read()
-        
-        if original_content == decrypted_content:
-            print("🎉 SUCCESS: Decryption was successful! Files match perfectly.")
-            return True
-        else:
-            print("❌ FAILURE: Decryption failed. Files do not match.")
-            print(f"Original length: {len(original_content)}")
-            print(f"Decrypted length: {len(decrypted_content)}")
-            return False
-            
-    except FileNotFoundError as e:
-        print(f"✗ Error: Could not find file for verification: {e}")
-        return False
-    except Exception as e:
-        print(f"✗ Error during verification: {e}")
-        return False
-
-
-def main():
-    """Main program function"""
-    print("🔐 Custom Encryption/Decryption Program")
-    print("=" * 40)
-    
-    # Get user input for shift values
-    try:
-        shift1 = int(input("Enter shift1 value: "))
-        shift2 = int(input("Enter shift2 value: "))
+        shift1 = int(input("Enter shift1: ").strip())
+        shift2 = int(input("Enter shift2: ").strip())
     except ValueError:
-        print("✗ Error: Please enter valid integer values for shifts.")
+        print("Please enter valid integers for shift1 and shift2.", file=sys.stderr)
         return
-    
-    print(f"\nUsing shifts: shift1={shift1}, shift2={shift2}")
-    print("-" * 40)
-    
-    # Step 1: Encrypt the file
-    print("Step 1: Encrypting...")
-    if not encrypt_file("raw_text.txt", "encrypted_text.txt", shift1, shift2):
-        return
-    
-    # Step 2: Decrypt the encrypted file
-    print("\nStep 2: Decrypting...")
-    if not decrypt_file("encrypted_text.txt", "decrypted_text.txt", shift1, shift2):
-        return
-    
-    # Step 3: Verify the decryption
-    print("\nStep 3: Verifying...")
-    verify_decryption("raw_text.txt", "decrypted_text.txt")
+
+    file_plain = "raw_text.txt"
+    file_enc = "encrypted_text.txt"
+    file_dec = "decrypted_text.txt"
+
+    try:
+        _, rulebook = encrypt_file(file_plain, file_enc, shift1, shift2)
+        print(f"Encrypted -> {file_enc}")
+
+        decrypt_file(file_enc, file_dec, rulebook, shift1, shift2)
+        print(f"Decrypted -> {file_dec}")
+
+        if verify_files(file_plain, file_dec):
+            print("Verification succeeded: decrypted text matches the original.")
+        else:
+            print("Verification failed: decrypted text does NOT match the original.")
+
+    except FileNotFoundError as e:
+        print(f"File error: {e}. Make sure '{file_plain}' exists next to this script.", file=sys.stderr)
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
